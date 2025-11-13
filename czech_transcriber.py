@@ -13,6 +13,8 @@ Date: November 2025
 import os
 import sys
 import logging
+import math
+import tempfile
 from pathlib import Path
 from typing import Optional, Union
 import warnings
@@ -46,16 +48,29 @@ class CzechTranscriber:
     between accuracy and processing speed. For highest accuracy, use 'large'.
     """
     
-    def __init__(self, model_size: str = "medium"):
+    def __init__(self, model_size: str = "small"):
         """
         Initialize the transcriber with a specified Whisper model.
         
         Args:
             model_size (str): Whisper model size. Options: 'tiny', 'base', 'small', 
-                            'medium', 'large'. Default 'medium' is recommended for Czech.
+                            'medium', 'large'. Default 'small' for balanced speed/accuracy.
+                            
+        Speed/Quality Guide:
+        - 'tiny': ~39MB, fastest, lowest accuracy (good for quick overview)
+        - 'base': ~142MB, fast, good for clear audio
+        - 'small': ~244MB, balanced speed/accuracy (recommended)
+        - 'medium': ~769MB, slower, better accuracy
+        - 'large': ~1550MB, slowest, highest accuracy
         """
         self.model_size = model_size
         self.model = None
+        
+        # Validate model size
+        valid_sizes = ['tiny', 'base', 'small', 'medium', 'large']
+        if model_size not in valid_sizes:
+            raise ValueError(f"Invalid model size '{model_size}'. Choose from: {valid_sizes}")
+            
         logger.info(f"Initializing Czech transcriber with {model_size} model")
     
     def _load_model(self) -> None:
@@ -150,15 +165,92 @@ class CzechTranscriber:
             logger.error(f"Transcription failed: {e}")
             raise Exception(f"Transcription error: {e}")
     
-    def transcribe_file(self, file_path: Union[str, Path]) -> str:
+    def transcribe_long_audio(self, file_path: Union[str, Path], chunk_minutes: int = 10) -> str:
         """
-        Complete transcription pipeline: load audio, convert format, and transcribe.
+        Transcribe long audio files by splitting into chunks for faster processing.
         
-        This is the main method that handles the entire process from MP3 file
-        to transcribed text with proper error handling and cleanup.
+        This method splits long audio files into smaller chunks and processes them
+        sequentially, which is much faster than processing the entire file at once.
         
         Args:
             file_path (Union[str, Path]): Path to the input audio file
+            chunk_minutes (int): Minutes per chunk (default 10)
+            
+        Returns:
+            str: Complete transcription of all chunks combined
+            
+        Raises:
+            FileNotFoundError: If the input file doesn't exist
+            Exception: If chunking or transcription fails
+        """
+        import librosa
+        import soundfile as sf
+        
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {file_path}")
+            
+        logger.info(f"Processing long audio file in {chunk_minutes}-minute chunks...")
+        
+        try:
+            # Load full audio to determine duration and create chunks
+            audio, sr = librosa.load(file_path, sr=16000, mono=True)
+            duration = len(audio) / sr / 60  # duration in minutes
+            
+            if duration <= chunk_minutes:
+                # File is short enough, process normally
+                logger.info(f"File duration ({duration:.1f} min) <= chunk size, processing normally")
+                return self.transcribe_file(file_path, use_chunking=False)
+            
+            chunk_samples = chunk_minutes * 60 * sr
+            total_chunks = math.ceil(len(audio) / chunk_samples)
+            
+            logger.info(f"Audio duration: {duration:.1f} minutes, splitting into {total_chunks} chunks")
+            
+            full_transcription = []
+            
+            for i in range(total_chunks):
+                start_sample = i * chunk_samples
+                end_sample = min((i + 1) * chunk_samples, len(audio))
+                
+                chunk_audio = audio[start_sample:end_sample]
+                chunk_duration = len(chunk_audio) / sr / 60
+                
+                # Save chunk as temporary file
+                temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                try:
+                    sf.write(temp_file.name, chunk_audio, sr)
+                    temp_file.close()
+                    
+                    logger.info(f"Processing chunk {i+1}/{total_chunks} ({chunk_duration:.1f} min)...")
+                    chunk_result = self.transcribe_audio(temp_file.name)
+                    
+                    if chunk_result.strip():  # Only add non-empty transcriptions
+                        full_transcription.append(chunk_result.strip())
+                    
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(temp_file.name):
+                        os.unlink(temp_file.name)
+            
+            result = " ".join(full_transcription)
+            logger.info(f"Completed transcription of {total_chunks} chunks")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Long audio transcription failed: {e}")
+            raise Exception(f"Chunked transcription error: {e}")
+
+    def transcribe_file(self, file_path: Union[str, Path], use_chunking: bool = True) -> str:
+        """
+        Complete transcription pipeline with automatic chunking for long files.
+        
+        This method automatically detects long files and uses chunking for faster processing.
+        For educational content analysis, this provides much faster results.
+        
+        Args:
+            file_path (Union[str, Path]): Path to the input audio file
+            use_chunking (bool): Whether to use chunking for long files (default True)
             
         Returns:
             str: Complete transcribed text
@@ -167,33 +259,42 @@ class CzechTranscriber:
             FileNotFoundError: If the input file doesn't exist
             Exception: If any step of the transcription process fails
         """
-        temp_audio_path = None
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {file_path}")
+        
+        logger.info(f"Starting transcription of: {file_path.name}")
         
         try:
-            # Step 1: Load and convert audio
-            temp_audio_path = self.load_and_convert_audio(file_path)
+            # Check if file is long and use chunking if enabled
+            if use_chunking:
+                import librosa
+                audio, _ = librosa.load(file_path, sr=16000)
+                duration_minutes = len(audio) / 16000 / 60
+                
+                if duration_minutes > 15:  # Use chunking for files > 15 minutes
+                    logger.info(f"Long file detected ({duration_minutes:.1f} min), using chunking...")
+                    return self.transcribe_long_audio(file_path)
             
-            # Step 2: Transcribe audio
+            # Original method for shorter files
+            temp_audio_path = self.load_and_convert_audio(file_path)
             transcription = self.transcribe_audio(temp_audio_path)
             
+            # Clean up temporary file if it was created
+            if temp_audio_path != str(file_path) and os.path.exists(temp_audio_path):
+                os.unlink(temp_audio_path)
+                logger.info("Temporary audio file cleaned up")
+                
             return transcription
             
         except Exception as e:
             logger.error(f"Transcription pipeline failed: {e}")
             raise
-        
-        finally:
-            # Clean up temporary file
-            if temp_audio_path and os.path.exists(temp_audio_path):
-                try:
-                    os.unlink(temp_audio_path)
-                    logger.info("Temporary audio file cleaned up")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file: {e}")
 
 
 def transcribe_czech_audio(file_path: Union[str, Path], 
-                          model_size: str = "medium") -> str:
+                          model_size: str = "small") -> str:
     """
     Convenience function to transcribe Czech audio from a file.
     
@@ -203,7 +304,7 @@ def transcribe_czech_audio(file_path: Union[str, Path],
     Args:
         file_path (Union[str, Path]): Path to the audio file
         model_size (str): Whisper model size ('tiny', 'base', 'small', 'medium', 'large')
-                         Default 'medium' recommended for Czech
+                         Default 'small' recommended for speed/accuracy balance
     
     Returns:
         str: Transcribed text
@@ -218,29 +319,83 @@ def transcribe_czech_audio(file_path: Union[str, Path],
 
 def main():
     """
-    Main function with example usage and command-line interface.
+    Main function with enhanced command-line interface for faster processing.
     """
-    if len(sys.argv) != 2:
-        print("Usage: python czech_transcriber.py <audio_file_path>")
-        print("\nExample:")
-        print("  python czech_transcriber.py audio.mp3")
-        print("  python czech_transcriber.py /path/to/czech_speech.mp3")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Transcribe Czech audio files with speed optimizations')
+    parser.add_argument('audio_file', help='Path to audio file')
+    parser.add_argument('--model', choices=['tiny', 'base', 'small', 'medium', 'large'], 
+                       default='small', help='Whisper model size (default: small for speed/accuracy balance)')
+    parser.add_argument('--fast', action='store_true', 
+                       help='Use fastest settings (tiny model + optimized chunking)')
+    parser.add_argument('--chunk-minutes', type=int, default=10,
+                       help='Minutes per chunk for long files (default: 10)')
+    parser.add_argument('--no-chunking', action='store_true',
+                       help='Disable automatic chunking for long files')
+    
+    # If no arguments provided, show simple usage
+    if len(sys.argv) == 1:
+        print("Usage: python czech_transcriber.py <audio_file_path> [options]")
+        print("\nQuick examples:")
+        print("  python czech_transcriber.py audio.mp3                    # Balanced speed/quality")
+        print("  python czech_transcriber.py long_audio.mp3 --fast        # Fastest processing")
+        print("  python czech_transcriber.py audio.mp3 --model medium     # Higher quality")
         print("\nSupported formats: MP3, WAV, M4A, AAC")
-        print("\nModel recommendations for Czech:")
-        print("  - 'medium': Best balance of speed and accuracy (recommended)")
-        print("  - 'large': Highest accuracy, slower processing")
-        print("  - 'small': Faster processing, lower accuracy")
+        print("\nFor detailed options: python czech_transcriber.py --help")
         sys.exit(1)
     
-    audio_file = sys.argv[1]
+    args = parser.parse_args()
+    
+    # Configure model based on options
+    if args.fast:
+        model_size = 'tiny'
+        chunk_minutes = 5  # Smaller chunks for faster processing
+        print("🚀 FAST MODE: Using tiny model with 5-minute chunks for maximum speed")
+        print("   Note: Quality will be lower but processing will be much faster")
+    else:
+        model_size = args.model
+        chunk_minutes = args.chunk_minutes
+    
+    audio_file = args.audio_file
     
     try:
         print(f"Transcribing Czech audio from: {audio_file}")
-        print("This may take a few moments depending on file size and model...")
+        print(f"Using '{model_size}' model...")
+        
+        # Show estimated time based on model and file
+        try:
+            import librosa
+            audio, _ = librosa.load(audio_file, sr=16000)
+            duration_min = len(audio) / 16000 / 60
+            
+            # Rough time estimates (will vary by system)
+            time_estimates = {
+                'tiny': duration_min * 0.1,
+                'base': duration_min * 0.15, 
+                'small': duration_min * 0.25,
+                'medium': duration_min * 0.5,
+                'large': duration_min * 1.0
+            }
+            
+            estimated_time = time_estimates.get(model_size, duration_min * 0.25)
+            print(f"Audio duration: {duration_min:.1f} minutes")
+            print(f"Estimated processing time: {estimated_time:.1f} minutes")
+            
+        except Exception:
+            print("Could not estimate processing time")
+        
         print("-" * 60)
         
-        # Use medium model for good Czech accuracy
-        transcription = transcribe_czech_audio(audio_file, model_size="medium")
+        transcriber = CzechTranscriber(model_size=model_size)
+        
+        # Choose processing method
+        use_chunking = not args.no_chunking
+        if args.fast:
+            # For fast mode, always use chunking with small chunks
+            transcription = transcriber.transcribe_long_audio(audio_file, chunk_minutes)
+        else:
+            transcription = transcriber.transcribe_file(audio_file, use_chunking=use_chunking)
         
         print("TRANSCRIPTION:")
         print("=" * 60)
@@ -248,11 +403,18 @@ def main():
         print("=" * 60)
         print("\nTranscription completed successfully!")
         
-        # Optionally save to file
+        # Save to file
         output_file = Path(audio_file).with_suffix('.txt')
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(transcription)
         print(f"Transcription saved to: {output_file}")
+        
+        # Show quality/speed info
+        print(f"\nProcessing info:")
+        print(f"  Model used: {model_size}")
+        print(f"  Chunking: {'Enabled' if use_chunking else 'Disabled'}")
+        if use_chunking:
+            print(f"  Chunk size: {chunk_minutes} minutes")
         
     except FileNotFoundError:
         print(f"Error: File '{audio_file}' not found.")
