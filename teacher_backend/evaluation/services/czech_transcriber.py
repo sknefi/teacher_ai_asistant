@@ -107,6 +107,7 @@ class CzechTranscriber:
         )
         text = result.get("text", "").strip()
         logger.info("Transcription complete (%d chars)", len(text))
+        logger.info("Transcription complete; first 120 chars: %s", text[:120])
         return text
 
 

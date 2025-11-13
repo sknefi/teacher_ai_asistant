@@ -1,16 +1,22 @@
-"""LLM integration for generating classroom evaluation JSON."""
-from __future__ import annotations
+"""
+LLM integration using Featherless.ai (OpenAI-compatible REST API).
+"""
 
+from __future__ import annotations
 import json
 import logging
 import os
 from typing import Any
 
+from openai import OpenAI
+
 logger = logging.getLogger(__name__)
 
 
 class LLMEvaluator:
-    """Thin wrapper around OpenAI's ChatCompletion API."""
+    """
+    Wrapper around the Featherless.ai Chat Completions API.
+    """
 
     def __init__(
         self,
@@ -19,26 +25,38 @@ class LLMEvaluator:
         temperature: float | None = None,
         api_key: str | None = None,
     ) -> None:
+
         self.system_prompt = system_prompt
-        self.model_name = model_name or os.environ.get("LLM_MODEL", "gpt-4o-mini")
-        self.temperature = temperature if temperature is not None else float(
-            os.environ.get("LLM_TEMPERATURE", 0.1)
+
+        # ⭐ DEFAULT MODEL (Featherless Llama 3.1 70B)
+        # This model EXISTS on Featherless and avoids 404 errors
+        self.model_name = (
+            model_name
+            or os.environ.get("LLM_MODEL")
+            or "meta-llama/Meta-Llama-3.1-70B-Instruct"
         )
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+
+        self.temperature = (
+            temperature
+            if temperature is not None
+            else float(os.environ.get("LLM_TEMPERATURE", 0.1))
+        )
+
+        # ⭐ Featherless API key from FEATHERLESS_API_KEY
+        self.api_key = api_key or os.environ.get("FEATHERLESS_API_KEY")
         if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY environment variable is required for LLM calls.")
+            raise RuntimeError("FEATHERLESS_API_KEY env var is required.")
 
-        try:
-            import openai
-        except ImportError as exc:  # pragma: no cover - runtime feedback
-            raise RuntimeError("The openai python package is required. Install it in your environment.") from exc
-
-        openai.api_key = self.api_key
-        self._client = openai
+        # ⭐ OpenAI client pointed at Featherless API
+        self._client = OpenAI(
+            api_key=self.api_key,
+            base_url="https://api.featherless.ai/v1",
+        )
 
     def evaluate(self, user_prompt: str) -> dict[str, Any] | str:
-        logger.info("Sending transcript + metadata to LLM model %s", self.model_name)
-        response = self._client.ChatCompletion.create(  # type: ignore[attr-defined]
+        logger.info("Calling Featherless model %s", self.model_name)
+
+        response = self._client.chat.completions.create(
             model=self.model_name,
             temperature=self.temperature,
             messages=[
@@ -46,15 +64,17 @@ class LLMEvaluator:
                 {"role": "user", "content": user_prompt},
             ],
         )
-        content = response["choices"][0]["message"]["content"].strip()
 
-        # Attempt to parse JSON so the caller gets structured data already.
+        message = response.choices[0].message
+        content = message.content.strip() if message.content else ""
+
+        # ⭐ Try to parse output as JSON
         try:
             parsed = json.loads(content)
-            logger.info("LLM returned well-formed JSON")
+            logger.info("Featherless returned valid JSON")
             return parsed
         except json.JSONDecodeError:
-            logger.warning("LLM response was not valid JSON; returning raw text")
+            logger.warning("Featherless response was not valid JSON. Returning raw text.")
             return content
 
 
