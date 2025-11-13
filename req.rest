@@ -1,0 +1,5 @@
+POST http://localhost:8000/api/evaluate/
+
+curl -X POST http://127.0.0.1:8000/api/evaluate/ \
+  -F "audio=@/full/path/to/lesson.mp3" \
+  -F 'metadata={"teacher_name":"Ms. Novak","subject":"Math","age_group":"Upper primary (9–11 years)"}'
