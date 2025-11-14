@@ -6,6 +6,7 @@ Modern Next.js dashboard that visualizes the JSON returned by the Django `/api/e
 
 ```bash
 cd dashboard_ui
+cp .env.local.example .env.local   # point to the Django server
 npm install
 npm run dev
 ```
@@ -14,13 +15,13 @@ Then visit `http://localhost:3000`.
 
 ## Connecting to the backend
 
-The dashboard expects the backend from `teacher_backend` to be running locally (default `http://localhost:8000`). When you're ready to replace the sample data with real evaluations:
+Set `NEXT_PUBLIC_API_BASE_URL` inside `.env.local` (defaults to `http://127.0.0.1:8000`). When the Django backend is running, the “Upload lesson” form on the dashboard will:
 
-1. Call the Django endpoint to upload audio + metadata: `POST http://localhost:8000/api/evaluate/`.
-2. Persist the JSON response (metadata + evaluation) in your preferred store or pass it directly to the UI.
-3. Replace the import from `@/data/sample-evaluation` with your fetch logic (e.g., `fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/evaluate/latest`)`).
+1. Collect metadata + MP3 via the UI.
+2. POST to `${NEXT_PUBLIC_API_BASE_URL}/api/evaluate/`.
+3. Replace the on-screen charts, tables, and transcript panel with the live response.
 
-You can set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` inside `.env.local` to keep the base URL configurable.
+A sample evaluation (`@/data/sample-evaluation`) still ships with the repo so the UI works without the backend, but it will be overwritten automatically after your first successful upload.
 
 ## Tech stack
 

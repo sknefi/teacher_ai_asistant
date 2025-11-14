@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { sampleEvaluation } from "@/data/sample-evaluation";
 import { RadarSpiderChart } from "@/components/charts/radar-spider-chart";
@@ -7,19 +9,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AuroraBackground } from "@/components/ui/aurora-background";
-import { EvaluationPayload, DomainScore } from "@/types/evaluation";
+import { LessonUploadForm, UploadFeedback } from "@/components/lesson-upload-form";
+import { EvaluationPayload, DomainScore, DomainScores } from "@/types/evaluation";
 import { cn } from "@/lib/utils";
 import { Award, BarChart3, Lightbulb, NotebookPen, UploadCloud, Users } from "lucide-react";
 
-const scoreColors: Record<number, string> = {
-  4: "text-emerald-600 bg-emerald-50",
-  3: "text-sky-600 bg-sky-50",
-  2: "text-amber-600 bg-amber-50",
-  1: "text-rose-600 bg-rose-50"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+const scoreColors: Record<string, string> = {
+  "4": "text-emerald-600 bg-emerald-50",
+  "3": "text-sky-600 bg-sky-50",
+  "2": "text-amber-600 bg-amber-50",
+  "1": "text-rose-600 bg-rose-50",
+  default: "text-slate-600 bg-slate-100"
 };
 
 const scoreLabels: Record<number, string> = {
@@ -29,11 +34,47 @@ const scoreLabels: Record<number, string> = {
   1: "Unsatisfactory"
 };
 
+type MetadataRecord = Record<string, unknown> | null;
+
 export default function DashboardPage() {
-  const evaluation = sampleEvaluation;
-  const tiles = buildStatTiles(evaluation);
-  const domainEntries = React.useMemo(() => Object.entries(evaluation.domain_scores), [evaluation]);
+  const [evaluation, setEvaluation] = React.useState<EvaluationPayload>(sampleEvaluation);
+  const [latestTranscript, setLatestTranscript] = React.useState<string>("");
+  const [resolvedMetadata, setResolvedMetadata] = React.useState<MetadataRecord>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<UploadFeedback | null>(null);
+  const uploadSectionRef = React.useRef<HTMLDivElement | null>(null);
+
+  const tiles = React.useMemo(() => buildStatTiles(evaluation), [evaluation]);
+  const domainEntries = React.useMemo(() => Object.entries(evaluation.domain_scores ?? {}), [evaluation]);
   const radarData = React.useMemo(() => buildRadarData(evaluation.domain_scores), [evaluation]);
+
+  const handleLessonUpload = React.useCallback(async (formData: FormData) => {
+    setIsSubmitting(true);
+    setFeedback(null);
+    try {
+      const endpoint = buildApiUrl("/api/evaluate/");
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData
+      });
+
+      const payload = await parseResponse(response);
+      const normalizedEvaluation = normalizeEvaluation(payload?.evaluation);
+      setEvaluation(normalizedEvaluation);
+      setLatestTranscript(payload?.transcript ?? "");
+      setResolvedMetadata(payload?.metadata ?? null);
+      setFeedback({ type: "success", message: "Lesson evaluated successfully." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error while sending the lesson.";
+      setFeedback({ type: "error", message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
+  const scrollToUpload = () => {
+    uploadSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <TooltipProvider>
@@ -55,17 +96,24 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-3 md:items-end">
-                <Button className="gap-2 text-base">
+                <Button className="gap-2 text-base" onClick={scrollToUpload}>
                   <UploadCloud className="h-4 w-4" />
                   Upload lesson
                 </Button>
                 <p className="text-sm text-muted-foreground">
-                  Connect to the Django backend at <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/api/evaluate/</code> to
-                  feed new lessons.
+                  Hits the Django backend at <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/api/evaluate/</code> using
+                  {" "}
+                  {API_BASE_URL}.
                 </p>
               </div>
             </div>
           </header>
+
+          <div ref={uploadSectionRef}>
+            <LessonUploadForm onSubmit={handleLessonUpload} isSubmitting={isSubmitting} feedback={feedback} />
+          </div>
+
+          <LatestLessonCard metadata={resolvedMetadata} transcript={latestTranscript} />
 
           <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {tiles.map((tile) => (
@@ -97,35 +145,32 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Tabs defaultValue="domains" className="space-y-6">
-            <TabsList className="w-full justify-start overflow-auto">
-              <TabsTrigger value="domains">Domain insights</TabsTrigger>
-              <TabsTrigger value="growth">Strengths & growth</TabsTrigger>
-              <TabsTrigger value="limits">Limits of inference</TabsTrigger>
+          <Tabs defaultValue="strengths" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-3 rounded-2xl bg-slate-100 p-1 text-xs sm:text-sm">
+              <TabsTrigger value="strengths">Strengths</TabsTrigger>
+              <TabsTrigger value="growth">Growth</TabsTrigger>
+              <TabsTrigger value="limits">Audio limits</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="domains" className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                {domainEntries.map(([domainKey, domain]) => (
-                  <DomainCard key={domainKey} title={formatDomainTitle(domainKey)} domain={domain} />
-                ))}
-              </div>
+            <TabsContent value="strengths">
+              <Card className="border-none bg-white shadow-sm">
+                <CardHeader>
+                  <CardTitle>Coaching headlines</CardTitle>
+                  <CardDescription>Celebrate what is working well.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  {evaluation.global_rating.top_strengths.map((item) => (
+                    <ListItem key={item} icon={<Award className="h-5 w-5 text-emerald-600" />} text={item} />
+                  ))}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="growth">
               <Card className="border-none bg-white shadow-sm">
                 <CardHeader>
-                  <CardTitle>Strengths celebrated</CardTitle>
-                  <CardDescription>What the evaluator praised about this lesson.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {evaluation.global_rating.top_strengths.map((item) => (
-                    <ListItem key={item} icon={<Award className="h-4 w-4 text-emerald-600" />} text={item} />
-                  ))}
-                </CardContent>
-                <Separator />
-                <CardHeader>
-                  <CardTitle>Priority areas for growth</CardTitle>
+                  <CardTitle>Growth focus</CardTitle>
+                  <CardDescription>Pair needs with next steps.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {evaluation.global_rating.priority_areas_for_growth.map((item) => (
@@ -223,57 +268,6 @@ export default function DashboardPage() {
   );
 }
 
-type DomainCardProps = {
-  title: string;
-  domain: DomainScore;
-};
-
-const DomainCard = ({ title, domain }: DomainCardProps) => {
-  const scoreValue = typeof domain.score_1_to_4_or_NA === "number" ? domain.score_1_to_4_or_NA : null;
-  const label = scoreValue ? scoreLabels[scoreValue] : "Not scored";
-
-  return (
-    <Card className="h-full border-none bg-white shadow-sm">
-      <CardHeader className="space-y-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">{title}</CardTitle>
-          <Tooltip>
-            <TooltipTrigger>
-              <ScoreBadge score={domain.score_1_to_4_or_NA} />
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
-        </div>
-        {domain.subject_specific_notes && <CardDescription>{domain.subject_specific_notes}</CardDescription>}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Evidence</p>
-          <p className="mt-1 text-sm text-slate-700">{domain.evidence}</p>
-        </div>
-        <Separator />
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Next actions</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-            {domain.suggestions.map((suggestion) => (
-              <li key={suggestion}>{suggestion}</li>
-            ))}
-          </ul>
-        </div>
-        {scoreValue && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Progress vs. mastery</span>
-              <span>{scoreValue}/4</span>
-            </div>
-            <Progress value={(scoreValue / 4) * 100} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-};
-
 const ListItem = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
   <div className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
     <div className="mt-1">{icon}</div>
@@ -283,14 +277,19 @@ const ListItem = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
 
 const ScoreBadge = ({ score }: { score: DomainScore["score_1_to_4_or_NA"] }) => {
   if (typeof score !== "number") {
-    return <Badge variant="outline">N/A</Badge>;
+    return (
+      <span className={cn("inline-flex min-w-[3.5rem] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold", scoreColors.default)}>
+        N/A
+      </span>
+    );
   }
 
+  const key = score.toFixed(0);
   return (
     <span
       className={cn(
         "inline-flex min-w-[3.5rem] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold",
-        scoreColors[score]
+        scoreColors[key] ?? scoreColors.default
       )}
     >
       {score.toFixed(1)}
@@ -351,4 +350,124 @@ function formatDomainTitle(domainKey: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function buildApiUrl(path: string) {
+  const trimmedBase = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  return `${trimmedBase}${path}`;
+}
+
+async function parseResponse(response: Response) {
+  const text = await response.text();
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.error) {
+        message = parsed.error;
+      }
+    } catch {
+      /* no-op */
+    }
+    throw new Error(message);
+  }
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error("Server returned malformed JSON.");
+  }
+}
+
+function normalizeEvaluation(raw: unknown): EvaluationPayload {
+  if (!raw) {
+    return sampleEvaluation;
+  }
+  if (typeof raw === "string") {
+    try {
+      return normalizeEvaluation(JSON.parse(raw));
+    } catch {
+      return sampleEvaluation;
+    }
+  }
+  const candidate = raw as Partial<EvaluationPayload>;
+  if (!candidate.lesson_overview || !candidate.domain_scores || !candidate.global_rating || !candidate.limits_of_inference) {
+    return sampleEvaluation;
+  }
+  return {
+    lesson_overview: { ...sampleEvaluation.lesson_overview, ...candidate.lesson_overview },
+    domain_scores: (candidate.domain_scores as DomainScores) ?? sampleEvaluation.domain_scores,
+    global_rating: { ...sampleEvaluation.global_rating, ...candidate.global_rating },
+    limits_of_inference: { ...sampleEvaluation.limits_of_inference, ...candidate.limits_of_inference }
+  };
+}
+
+const LatestLessonCard = ({ metadata, transcript }: { metadata: MetadataRecord; transcript: string }) => {
+  if (!metadata && !transcript) {
+    return null;
+  }
+
+  const metadataEntries = metadata ? expandMetadata(metadata) : [];
+  const transcriptPreview = transcript || "No transcript returned for this lesson.";
+
+  return (
+    <Card className="border-none bg-white shadow-sm">
+      <CardHeader>
+        <CardTitle>Latest lesson payload</CardTitle>
+        <CardDescription>Resolved metadata & transcript excerpt from the backend.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-6 md:grid-cols-2">
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-slate-900">Metadata (after defaults)</p>
+          {metadataEntries.length ? (
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {metadataEntries.map((entry) => (
+                <li key={`${entry.label}-${entry.value}`} className="flex items-center justify-between gap-4">
+                  <span className="font-medium text-slate-900">{entry.label}</span>
+                  <span className="text-right text-slate-600">{entry.value}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">Metadata will appear here after you upload a lesson.</p>
+          )}
+        </div>
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-slate-900">Transcript</p>
+          <ScrollArea className="h-48 rounded-2xl border border-slate-100 p-4">
+            <p className="whitespace-pre-wrap text-sm text-slate-700">{transcriptPreview}</p>
+          </ScrollArea>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+function expandMetadata(metadata: Record<string, unknown>) {
+  const entries: Array<{ label: string; value: string }> = [];
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (key === "extra_metadata" && value && typeof value === "object") {
+      Object.entries(value as Record<string, unknown>).forEach(([extraKey, extraValue]) => {
+        entries.push({ label: formatDomainTitle(extraKey), value: formatMetadataValue(extraValue) });
+      });
+    } else {
+      entries.push({ label: formatDomainTitle(key), value: formatMetadataValue(value) });
+    }
+  });
+  return entries;
+}
+
+function formatMetadataValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+  return JSON.stringify(value);
 }
