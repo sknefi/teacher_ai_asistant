@@ -35,11 +35,13 @@ Create `teacher_backend/.env` (copy from `.env.example`) and add at least:
 
 | Variable | Description |
 | --- | --- |
-| `OPENAI_API_KEY` | API key with access to the configured LLM (or `FEATHERLESS_API_KEY` if using Featherless). |
-| `LLM_MODEL` (optional) | Defaults to `gpt-4o-mini`. |
+| `OPENAI_API_KEY` | API key with access to OpenAI models (default provider). |
+| `FEATHERLESS_API_KEY` (optional) | If set, the evaluator sends requests to Featherless.ai instead of OpenAI. |
+| `LLM_MODEL` (optional) | Defaults to `gpt-4o-mini` for OpenAI or a Featherless Llama model when that key is present. |
 | `WHISPER_MODEL` (optional) | Defaults to `small`. |
 | `WHISPER_LANGUAGE` (optional) | Defaults to `cs`. |
 | `DJANGO_SECRET_KEY` (optional) | Provide your own in production. |
+| `DJANGO_CORS_ALLOWED_ORIGINS` (optional) | Comma-separated list of origins allowed to hit the API (defaults to localhost:3000). |
 
 The `.env` file is loaded automatically by `manage.py`, `asgi.py`, and `wsgi.py` so you don’t have to `export` values manually.
 

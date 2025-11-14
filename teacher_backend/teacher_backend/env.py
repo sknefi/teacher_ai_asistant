@@ -7,8 +7,20 @@ from pathlib import Path
 
 def load_env_file(path: str | Path | None = None) -> None:
     """Populate os.environ with key=value pairs from a .env file."""
-    env_path = Path(path) if path else Path(__file__).resolve().parent / ".env"
-    if not env_path.exists():
+    candidates: list[Path] = []
+    if path:
+        candidates.append(Path(path))
+    else:
+        root = Path(__file__).resolve().parent
+        candidates.extend(
+            [
+                root / ".env",
+                root.parent / ".env",
+            ]
+        )
+
+    env_path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if env_path is None:
         return
 
     for line in env_path.read_text().splitlines():

@@ -1,8 +1,7 @@
-"""
-LLM integration using Featherless.ai (OpenAI-compatible REST API).
-"""
+"""LLM integration that can talk to OpenAI or Featherless.ai."""
 
 from __future__ import annotations
+
 import json
 import logging
 import os
@@ -14,9 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMEvaluator:
-    """
-    Wrapper around the Featherless.ai Chat Completions API.
-    """
+    """Wrapper around OpenAI-compatible chat completion APIs."""
 
     def __init__(
         self,
@@ -25,36 +22,52 @@ class LLMEvaluator:
         temperature: float | None = None,
         api_key: str | None = None,
     ) -> None:
-
         self.system_prompt = system_prompt
-
-        # ⭐ DEFAULT MODEL (Featherless Llama 3.1 70B)
-        # This model EXISTS on Featherless and avoids 404 errors
-        self.model_name = (
-            model_name
-            or os.environ.get("LLM_MODEL")
-            or "meta-llama/Meta-Llama-3.1-70B-Instruct"
-        )
-
         self.temperature = (
             temperature
             if temperature is not None
             else float(os.environ.get("LLM_TEMPERATURE", 0.1))
         )
 
-        # ⭐ Featherless API key from FEATHERLESS_API_KEY
-        self.api_key = api_key or os.environ.get("FEATHERLESS_API_KEY")
-        if not self.api_key:
-            raise RuntimeError("FEATHERLESS_API_KEY env var is required.")
+        # Determine provider: prefer Featherless if key is present, otherwise OpenAI.
+        featherless_key = os.environ.get("FEATHERLESS_API_KEY")
+        openai_key = os.environ.get("OPENAI_API_KEY")
 
-        # ⭐ OpenAI client pointed at Featherless API
-        self._client = OpenAI(
-            api_key=self.api_key,
-            base_url="https://api.featherless.ai/v1",
+        if featherless_key:
+            self.provider = "featherless"
+            self.api_key = api_key or featherless_key
+            self.base_url = os.environ.get(
+                "FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"
+            )
+            default_model = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+        else:
+            self.provider = "openai"
+            self.api_key = api_key or openai_key
+            self.base_url = os.environ.get("OPENAI_BASE_URL")
+            default_model = "gpt-4o-mini"
+
+        if not self.api_key:
+            raise RuntimeError(
+                "Missing API key: set OPENAI_API_KEY or FEATHERLESS_API_KEY in the environment."
+            )
+
+        self.model_name = (
+            model_name
+            or os.environ.get("LLM_MODEL")
+            or default_model
         )
 
+        client_kwargs = {"api_key": self.api_key}
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+        self._client = OpenAI(**client_kwargs)
+
     def evaluate(self, user_prompt: str) -> dict[str, Any] | str:
-        logger.info("Calling Featherless model %s", self.model_name)
+        logger.info(
+            "Calling %s model %s",
+            "Featherless" if self.provider == "featherless" else "OpenAI",
+            self.model_name,
+        )
 
         response = self._client.chat.completions.create(
             model=self.model_name,
@@ -68,13 +81,12 @@ class LLMEvaluator:
         message = response.choices[0].message
         content = message.content.strip() if message.content else ""
 
-        # ⭐ Try to parse output as JSON
         try:
             parsed = json.loads(content)
-            logger.info("Featherless returned valid JSON")
+            logger.info("LLM returned valid JSON")
             return parsed
         except json.JSONDecodeError:
-            logger.warning("Featherless response was not valid JSON. Returning raw text.")
+            logger.warning("LLM response was not valid JSON; returning raw text")
             return content
 
 

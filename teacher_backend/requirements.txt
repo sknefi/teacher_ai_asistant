@@ -3,3 +3,4 @@ openai>=1.40.0
 openai-whisper>=20231117
 librosa>=0.10
 soundfile>=0.12
+django-cors-headers>=4.4
