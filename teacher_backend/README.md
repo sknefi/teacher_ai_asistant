@@ -9,14 +9,25 @@ This Django backend exposes a single `/api/evaluate/` endpoint that accepts an M
 
 ## Quick start
 
-```bash
-cd teacher_backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
+1. Clone the repo and move into `teacher_backend/`.
+2. Create/fill `.env` (see below) with your API keys.
+3. Create a virtualenv and install deps:
+
+    ```bash
+    cd teacher_backend
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+4. Run migrations and start the dev server:
+
+    ```bash
+    python manage.py migrate
+    python manage.py runserver 0.0.0.0:8000
+    ```
+
+The logs will show when Whisper finishes downloading its model; after that you can send evaluation requests.
 
 ### Environment variables / `.env`
 
@@ -50,6 +61,25 @@ The `.env` file is loaded automatically by `manage.py`, `asgi.py`, and `wsgi.py`
 ```
 
 Errors are returned as `{ "error": "message" }` with appropriate HTTP status codes.
+
+### Testing with curl
+
+Once the server is running locally, you can hit it from any shell:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/evaluate/ \
+  -F "audio=@/absolute/path/to/lesson.mp3" \
+  -F 'metadata={
+        "teacher_name": "Ms. Novak",
+        "school_name": "Gymnazium Praha",
+        "region": "Central Bohemia, Czech Republic",
+        "age_group": "Upper primary (9–11 years)",
+        "subject": "Mathematics",
+        "lesson_type": "Practice / consolidation"
+      }'
+```
+
+You can also send individual form fields instead of the `metadata` JSON blob (e.g., `-F teacher_name=... -F subject=Math`). The response includes the resolved metadata, full transcript, and the rubric-aligned evaluation JSON.
 
 ### Notes
 
