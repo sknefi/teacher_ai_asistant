@@ -18,15 +18,19 @@ python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
 
-### Required environment variables
+### Environment variables / `.env`
+
+Create `teacher_backend/.env` (copy from `.env.example`) and add at least:
 
 | Variable | Description |
 | --- | --- |
-| `OPENAI_API_KEY` | API key with access to the target LLM. |
+| `OPENAI_API_KEY` | API key with access to the configured LLM (or `FEATHERLESS_API_KEY` if using Featherless). |
 | `LLM_MODEL` (optional) | Defaults to `gpt-4o-mini`. |
-| `WHISPER_MODEL` (optional) | Defaults to `medium`. |
+| `WHISPER_MODEL` (optional) | Defaults to `small`. |
 | `WHISPER_LANGUAGE` (optional) | Defaults to `cs`. |
 | `DJANGO_SECRET_KEY` (optional) | Provide your own in production. |
+
+The `.env` file is loaded automatically by `manage.py`, `asgi.py`, and `wsgi.py` so you don’t have to `export` values manually.
 
 ### Endpoint contract
 

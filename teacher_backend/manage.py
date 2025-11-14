@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Django's command-line utility for administrative tasks."""
+from __future__ import annotations
+
 import os
 import sys
+from teacher_backend.env import load_env_file
 
 
 def main() -> None:
+    load_env_file()
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "teacher_backend.settings")
     try:
         from django.core.management import execute_from_command_line
