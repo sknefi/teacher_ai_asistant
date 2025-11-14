@@ -13,11 +13,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AuroraBackground } from "@/components/ui/aurora-background";
 import { LessonUploadForm, UploadFeedback } from "@/components/lesson-upload-form";
-import { EvaluationPayload, DomainScore, DomainScores } from "@/types/evaluation";
+import { EvaluationPayload, DomainScore, DomainScores, LessonOverview } from "@/types/evaluation";
 import { cn } from "@/lib/utils";
 import { Award, BarChart3, Lightbulb, NotebookPen, UploadCloud, Users } from "lucide-react";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 const scoreColors: Record<string, string> = {
   "4": "text-emerald-600 bg-emerald-50",
@@ -27,12 +25,33 @@ const scoreColors: Record<string, string> = {
   default: "text-slate-600 bg-slate-100"
 };
 
-const scoreLabels: Record<number, string> = {
-  4: "Exemplary",
-  3: "Effective",
-  2: "Developing",
-  1: "Unsatisfactory"
-};
+const MOCK_EVALUATION_DELAY_MS = 600;
+
+type OverviewTemplate = (overview: LessonOverview) => string;
+
+const STRENGTH_TEMPLATES: OverviewTemplate[] = [
+  (overview) => `${overview.teacher_name} established routines that kept the ${overview.lesson_type.toLowerCase()} flowing smoothly.`,
+  (overview) => `Students in ${overview.age_group.toLowerCase()} at ${overview.school_name} eagerly referenced one another's ideas.`,
+  (overview) => `Questioning connected prior knowledge to the new ${overview.subject.toLowerCase()} concept without losing momentum.`,
+  (overview) => `Transitions at ${overview.school_name} stayed calm, protecting instructional minutes.`,
+  (overview) => `${overview.teacher_name} modeled precise academic language throughout the ${overview.subject.toLowerCase()} work time.`
+];
+
+const GROWTH_TEMPLATES: OverviewTemplate[] = [
+  (overview) => `Push for complete explanations so students articulate their thinking in ${overview.subject.toLowerCase()}.`,
+  (overview) => `Invite quieter voices so every learner contributes during the ${overview.lesson_type.toLowerCase()} block.`,
+  () => "Use quick written checks between segments to see who is ready to accelerate or who needs scaffolds.",
+  () => "Balance teacher talk with collaborative discussion so energy stays high.",
+  (overview) => `Connect each task back to the stated goal so learners understand why the ${overview.subject.toLowerCase()} concept matters.`
+];
+
+const NEXT_STEP_TEMPLATES: OverviewTemplate[] = [
+  (overview) => `Plan two follow-up prompts (e.g., "Why does that work?") for tomorrow's ${overview.subject.toLowerCase()} lesson.`,
+  (overview) => `Add a short turn-and-talk so every voice enters the ${overview.lesson_type.toLowerCase()} conversation.`,
+  () => "Track which students share aloud this week and intentionally call on new voices.",
+  () => "Close with a quick exit ticket aligned to the goal and review it before the next class.",
+  () => "Ask a student to restate the key idea in their own words before dismissal."
+];
 
 type MetadataRecord = Record<string, unknown> | null;
 
@@ -52,18 +71,13 @@ export default function DashboardPage() {
     setIsSubmitting(true);
     setFeedback(null);
     try {
-      const endpoint = buildApiUrl("/api/evaluate/");
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body: formData
-      });
-
-      const payload = await parseResponse(response);
-      const normalizedEvaluation = normalizeEvaluation(payload?.evaluation);
-      setEvaluation(normalizedEvaluation);
-      setLatestTranscript(payload?.transcript ?? "");
-      setResolvedMetadata(payload?.metadata ?? null);
-      setFeedback({ type: "success", message: "Lesson evaluated successfully." });
+      const metadataPayload = extractMetadataFromFormData(formData);
+      await new Promise((resolve) => setTimeout(resolve, MOCK_EVALUATION_DELAY_MS));
+      const mockedEvaluation = generateMockEvaluation(metadataPayload);
+      setEvaluation(mockedEvaluation);
+      setLatestTranscript(buildMockTranscript(metadataPayload));
+      setResolvedMetadata(metadataPayload ?? null);
+      setFeedback({ type: "success", message: "Lesson evaluated with demo data." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error while sending the lesson.";
       setFeedback({ type: "error", message });
@@ -100,11 +114,7 @@ export default function DashboardPage() {
                   <UploadCloud className="h-4 w-4" />
                   Upload lesson
                 </Button>
-                <p className="text-sm text-muted-foreground">
-                  Hits the Django backend at <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/api/evaluate/</code> using
-                  {" "}
-                  {API_BASE_URL}.
-                </p>
+                <p className="text-sm text-muted-foreground">Demo mode active: uploads stay in the browser and generate mock scores instantly.</p>
               </div>
             </div>
           </header>
@@ -352,55 +362,6 @@ function formatDomainTitle(domainKey: string) {
     .join(" ");
 }
 
-function buildApiUrl(path: string) {
-  const trimmedBase = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-  return `${trimmedBase}${path}`;
-}
-
-async function parseResponse(response: Response) {
-  const text = await response.text();
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed?.error) {
-        message = parsed.error;
-      }
-    } catch {
-      /* no-op */
-    }
-    throw new Error(message);
-  }
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error("Server returned malformed JSON.");
-  }
-}
-
-function normalizeEvaluation(raw: unknown): EvaluationPayload {
-  if (!raw) {
-    return sampleEvaluation;
-  }
-  if (typeof raw === "string") {
-    try {
-      return normalizeEvaluation(JSON.parse(raw));
-    } catch {
-      return sampleEvaluation;
-    }
-  }
-  const candidate = raw as Partial<EvaluationPayload>;
-  if (!candidate.lesson_overview || !candidate.domain_scores || !candidate.global_rating || !candidate.limits_of_inference) {
-    return sampleEvaluation;
-  }
-  return {
-    lesson_overview: { ...sampleEvaluation.lesson_overview, ...candidate.lesson_overview },
-    domain_scores: (candidate.domain_scores as DomainScores) ?? sampleEvaluation.domain_scores,
-    global_rating: { ...sampleEvaluation.global_rating, ...candidate.global_rating },
-    limits_of_inference: { ...sampleEvaluation.limits_of_inference, ...candidate.limits_of_inference }
-  };
-}
-
 const LatestLessonCard = ({ metadata, transcript }: { metadata: MetadataRecord; transcript: string }) => {
   if (!metadata && !transcript) {
     return null;
@@ -413,7 +374,7 @@ const LatestLessonCard = ({ metadata, transcript }: { metadata: MetadataRecord; 
     <Card className="border-none bg-white shadow-sm">
       <CardHeader>
         <CardTitle>Latest lesson payload</CardTitle>
-        <CardDescription>Resolved metadata & transcript excerpt from the backend.</CardDescription>
+        <CardDescription>Resolved metadata & transcript excerpt from the latest demo evaluation.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6 md:grid-cols-2">
         <div className="space-y-3">
@@ -470,4 +431,167 @@ function formatMetadataValue(value: unknown) {
     return value.join(", ");
   }
   return JSON.stringify(value);
+}
+
+function extractMetadataFromFormData(formData: FormData): MetadataRecord {
+  const metadataField = formData.get("metadata");
+  if (typeof metadataField !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(metadataField);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function generateMockEvaluation(metadata: MetadataRecord): EvaluationPayload {
+  const randomizedDomainScores = randomizeDomainScores(sampleEvaluation.domain_scores);
+  const overrides = extractLessonOverviewOverrides(metadata);
+  const lessonOverview = { ...sampleEvaluation.lesson_overview, ...overrides };
+  const averageScore = calculateAverageFromDomainScores(randomizedDomainScores);
+  const performanceBand = describeScoreBand(averageScore);
+
+  return {
+    lesson_overview: {
+      ...lessonOverview,
+      overall_impression: buildOverallImpression(lessonOverview, performanceBand)
+    },
+    domain_scores: randomizedDomainScores,
+    global_rating: {
+      overall_score_average_or_band: buildMockOverallRating(performanceBand, averageScore),
+      top_strengths: pickRandomItems(STRENGTH_TEMPLATES, 2).map((template) => template(lessonOverview)),
+      priority_areas_for_growth: pickRandomItems(GROWTH_TEMPLATES, 2).map((template) => template(lessonOverview)),
+      concrete_next_steps_for_teacher: pickRandomItems(NEXT_STEP_TEMPLATES, 3).map((template) => template(lessonOverview))
+    },
+    limits_of_inference: sampleEvaluation.limits_of_inference
+  };
+}
+
+function randomizeDomainScores(baseScores: DomainScores): DomainScores {
+  return Object.fromEntries(
+    Object.entries(baseScores).map(([key, domain]) => [
+      key,
+      {
+        ...domain,
+        score_1_to_4_or_NA: buildMockScore()
+      }
+    ])
+  );
+}
+
+function buildMockScore(): number {
+  const raw = Number((Math.random() * 2 + 2).toFixed(1));
+  return Math.min(4, Math.max(1, raw));
+}
+
+function extractLessonOverviewOverrides(metadata: MetadataRecord): Partial<LessonOverview> {
+  if (!metadata || typeof metadata !== "object") {
+    return {};
+  }
+  const record = metadata as Record<string, unknown>;
+  const overrides: Partial<LessonOverview> = {};
+
+  const assignString = (sourceKey: string, targetKey: keyof LessonOverview) => {
+    const value = record[sourceKey];
+    if (typeof value === "string" && value.trim()) {
+      overrides[targetKey] = value.trim();
+    }
+  };
+
+  assignString("teacher_name", "teacher_name");
+  assignString("school_name", "school_name");
+  assignString("region", "region");
+  assignString("age_group", "age_group");
+  assignString("subject", "subject");
+  assignString("lesson_type", "lesson_type");
+
+  const curriculumValue = record["curriculum_goal"];
+  if (typeof curriculumValue === "string" && curriculumValue.trim()) {
+    overrides.curriculum_goal_inferred_or_given = curriculumValue.trim();
+  }
+
+  return overrides;
+}
+
+function calculateAverageFromDomainScores(domainScores: DomainScores): number {
+  const numericScores = Object.values(domainScores)
+    .map((domain) => (typeof domain.score_1_to_4_or_NA === "number" ? domain.score_1_to_4_or_NA : null))
+    .filter((score): score is number => typeof score === "number");
+  if (!numericScores.length) {
+    return 0;
+  }
+  const total = numericScores.reduce((sum, score) => sum + score, 0);
+  return total / numericScores.length;
+}
+
+function describeScoreBand(averageScore: number): string {
+  if (averageScore >= 3.5) {
+    return "Exemplary";
+  }
+  if (averageScore >= 3) {
+    return "Effective";
+  }
+  if (averageScore >= 2.25) {
+    return "Developing";
+  }
+  return "Unsatisfactory";
+}
+
+function buildMockOverallRating(band: string, averageScore: number): string {
+  return `${band} (mock avg ≈ ${averageScore.toFixed(1)} / 4)`;
+}
+
+function buildOverallImpression(lessonOverview: LessonOverview, band: string): string {
+  const subjectLabel = lessonOverview.subject.toLowerCase();
+  const base = `${lessonOverview.teacher_name} led a ${subjectLabel} lesson at ${lessonOverview.school_name} in ${lessonOverview.region}`;
+  switch (band) {
+    case "Exemplary":
+      return `${base} that crackled with student ownership and precise academic language.`;
+    case "Effective":
+      return `${base} that earned a solid rating thanks to clear modeling and upbeat pacing.`;
+    case "Developing":
+      return `${base} that showed promising routines but still needs deeper student reasoning.`;
+    default:
+      return `${base} that now guides the next round of targeted coaching support.`;
+  }
+}
+
+function buildMockTranscript(metadata: MetadataRecord): string {
+  const teacherName = getMetadataString(metadata, "teacher_name") ?? sampleEvaluation.lesson_overview.teacher_name;
+  const subject = (getMetadataString(metadata, "subject") ?? sampleEvaluation.lesson_overview.subject).toLowerCase();
+  const lessonType = (getMetadataString(metadata, "lesson_type") ?? sampleEvaluation.lesson_overview.lesson_type).toLowerCase();
+  const ageGroup = getMetadataString(metadata, "age_group") ?? sampleEvaluation.lesson_overview.age_group;
+
+  const transcriptSnippets = [
+    `${teacherName}: Good morning ${ageGroup}! Today we're diving into ${subject}. First, jot down one thing you already know.\nStudent: I remember splitting shapes into equal parts!\n${teacherName}: Great start—keep those connections coming.`,
+    `${teacherName}: During this ${lessonType}, listen for a classmate who explains their thinking clearly. You'll share it in a moment.\nStudent: I noticed she compared the two strategies.\n${teacherName}: Exactly—naming the strategy helps us remember it.`,
+    `${teacherName}: Take thirty seconds to think silently about this ${subject} question, then we'll pair up.\nStudents: (soft chatter)\n${teacherName}: Go ahead and talk to your partner—make sure both of you can explain the idea.`,
+    `${teacherName}: I heard strong ideas in that last share-out. Who can build on what Martina said about today's goal?\nStudent: She said we needed to connect it to real life.\n${teacherName}: Perfect link—let's capture that on the board.`
+  ];
+
+  return pickRandomItems(transcriptSnippets, 1)[0];
+}
+
+function pickRandomItems<T>(source: T[], count: number) {
+  if (count >= source.length) {
+    return [...source];
+  }
+  const pool = [...source];
+  const selections: T[] = [];
+  while (selections.length < count && pool.length) {
+    const index = Math.floor(Math.random() * pool.length);
+    const [choice] = pool.splice(index, 1);
+    selections.push(choice);
+  }
+  return selections;
+}
+
+function getMetadataString(metadata: MetadataRecord, key: string): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
