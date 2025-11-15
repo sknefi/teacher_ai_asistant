@@ -565,10 +565,61 @@ function buildMockTranscript(metadata: MetadataRecord): string {
   const ageGroup = getMetadataString(metadata, "age_group") ?? sampleEvaluation.lesson_overview.age_group;
 
   const transcriptSnippets = [
-    `${teacherName}: Good morning ${ageGroup}! Today we're diving into ${subject}. First, jot down one thing you already know.\nStudent: I remember splitting shapes into equal parts!\n${teacherName}: Great start—keep those connections coming.`,
-    `${teacherName}: During this ${lessonType}, listen for a classmate who explains their thinking clearly. You'll share it in a moment.\nStudent: I noticed she compared the two strategies.\n${teacherName}: Exactly—naming the strategy helps us remember it.`,
-    `${teacherName}: Take thirty seconds to think silently about this ${subject} question, then we'll pair up.\nStudents: (soft chatter)\n${teacherName}: Go ahead and talk to your partner—make sure both of you can explain the idea.`,
-    `${teacherName}: I heard strong ideas in that last share-out. Who can build on what Martina said about today's goal?\nStudent: She said we needed to connect it to real life.\n${teacherName}: Perfect link—let's capture that on the board.`
+	"Dobré ráno všem. Dnes budeme pokračovat v našem tématu a zaměříme se na to, jak můžeme jeden a tentýž problém vyjádřit několika různými způsoby \
+Nejdřív si mezi sebou porovnejte, jak byste popsali svůj postup z minulé hodiny \
+Podívejte se na svůj sešit a zkuste najít místo, kde jste si nebyli jistí. \
+Nebojte se chyby, právě díky nim se dostáváme blíž k pochopení. \
+Teď otevřete učebnici na straně 36 a nalistujte příklad v pravém horním rohu. \
+Všimněte si, že příklad má dvě různé strategie řešení — obě jsou správné. \
+Přečtěte si obě strategie a zkuste si v hlavě vybrat tu, které víc rozumíte. \
+Potom řekněte svému sousedovi, proč jste si vybrali právě tu. \
+Teď se společně zamyslíme: co mají obě strategie společného? \
+Dívejte se na strukturu, ne jen na čísla. \
+Nyní si do sešitu napište: „Co mi dnes dává největší smysl?“ \
+Nepotřebujete celý odstavec, stačí krátká věta. \
+Teď zavřete učebnici a zaměříme se na jednoduchý příklad z praxe. \
+Představte si, že máte rozdělit něco na stejné části — může to být jídlo, čas nebo prostor. \
+Jak byste to popsali někomu, kdo tu dnes není? \
+Zkuste to říct nahlas, klidně polohlasem. \
+Výborně. Teď si vezmeme barevné tužky a na papír načrtneme jednoduchý model. \
+Nemusí být krásný, jde jen o pochopení vztahů mezi částmi. \
+Až budete hotovi, zakroužkujte místo, které považujete za nejdůležitější. \
+Teď si papíry vyměníme se sousedem. \
+Vaším úkolem je popsat, co vidíte, aniž byste hádali původní úmysl autora. \
+Jde nám o objektivní popis, ne o interpretaci. \
+Až to uděláte, vraťte papír zpět jeho majiteli. \
+Zeptejte se ho, jestli jste popis vystihli správně. \
+Jestli ne, pokuste se to upřesnit. \
+Teď přejdeme k další části. Vezměte si čistý list papíru. \
+Na tento list napište krátkou poznámku: „Co mi ještě není jasné?“ \
+Nemusíte psát celé věty, stačí slova nebo myšlenky. \
+Teď se podíváme na tabuli. \
+Tady vidíte tři různé způsoby, jak stejný problém zobrazit: obrázkem, tabulkou a čísly. \
+Zkuste si v hlavě říct, který způsob vám nejvíc pomáhá. \
+Žádný není správně nebo špatně, každý funguje jinak. \
+Nyní si uděláme krátkou tichou práci. \
+Během třiceti vteřin zkuste přijít na jeden nový způsob, jak by se dal příklad vyřešit. \
+Nemusí být originální, stačí, že to dává smysl vám. \
+Dobře, čas vypršel. \
+Zvedne ruku někdo, kdo chce sdílet svůj nápad? \
+Děkuji za odvahu. To je přesně ta myšlenka, kterou jsem chtěl slyšet. \
+Nyní přejdeme k praktické části. \
+Vezměte si pracovní list, který máte před sebou. \
+V prvním úkolu jde o propojení toho, co jsme dělali, s běžným životem. \
+Přečtěte si zadání a zakroužkujte klíčová slova. \
+Potom pod ně napište, co podle vás znamenají. \
+Než začnete počítat, ujistěte se, že rozumíte tomu, co se po vás chce. \
+Až budete mít první úkol hotový, odložte tužku a chvilku počkejte. \
+Než přejdeme dál, zopakujeme si dnešní cíl: porozumět tomu, že jednu situaci lze popsat různými způsoby. \
+A každý z těch způsobů nám může něco odhalit. \
+Dobře, pokračujeme druhým úkolem. \
+U něj zkusíte použít vlastní strategii, ne tu z učebnice. \
+Jestli si nevíte rady, podívejte se zpět na svůj náčrt. \
+Ten často pomůže odkryt to, co čísla někdy zakryjí. \
+Až budete mít hotovo, uděláme společné sdílení. \
+Než začneme, zamyslete se: co byste doporučili někomu, kdo si s tímto příkladem neví rady? \
+Uložte si tuto myšlenku — budeme ji potřebovat na konci hodiny. \
+"
   ];
 
   return pickRandomItems(transcriptSnippets, 1)[0];
